@@ -1,0 +1,79 @@
+﻿New 12864
+ 12864LCD    ESP-12
+1 CS    ->  GPIO 13 D7
+2 RST   ->  GPIO 16 D0
+3 RS/DC ->  GPIO 15 D8
+4 SCK   ->  GPIO 14 D5
+5 SDA   ->  GPIO 12 D6
+6 VCC   ->  VCC
+7 GND   ->  GND
+8 LED-  ->  GND
+9 LED+  ->  3.3V or PWM Output
+
+GPIO 5 D1
+GPIO 4 D2
+GPIO 0 D3
+GPIO 2 D4
+
+Mini 12864
+1  VSS  电源地 ***
+2  VDD  电源正极（＋5V） ***
+3  VR  空脚
+4  AO/DC  数据/命令选择端（H/L） *** D8
+5  R/W  读写控制信号（H/L） ***
+6  E  使能信号 ***
+7  DB0  Data　I/O  
+8  DB1  Data　I/O
+9  DB2  Data　I/O
+10  DB3  Data　I/O
+11  DB4  Data　I/O
+12  DB5  Data　I/O 
+13  DB6  Data　I/O SCK *** D5
+14  DB7  Data　I/O SDA*** D6
+15  /CS  片选信号 *** D7
+16  NC  空脚 
+17  RST  复位端（H：正常工作，L：复位） *** D0
+18  V0  空脚 
+19  BLA  背光源正极 *** D3
+20  BLK  背光源负极　***
+
+Big Blue 12864
+20 NC
+19 P/S -> GND
+18 C86 -> GND
+17 GND (VDD)
+16 VCC (VSS)
+15 DB7/SDA (data) D6
+14 DB6/SDC (Clock) D5
+13 DB5 (NC)
+12 DB4 (NC)
+11 DB3 (NC)
+10 DB2 (NC)
+09 DB1 (NC)
+08 DB0 (NC)
+07 ERC (NC)
+06 PWR (NC)
+05 A0(RS)/DC D8
+04 Reset D0
+03 CS D7
+02 LED- (GND)
+01 LED+ (VCC)
+
+
+
+GPIO 5 D1 - AlarmD
+GPIO 4 D2 - Button
+GPIO 0 D3 - Light Sensor SDA
+GPIO 2 D4 - DHT
+GPIO 13 D7 - Light Sensor SCL
+GPIO 15 D8 - LCD Backlight
+
+Blue ST9720 LCD
+1  VSS  电源地 ***
+2  VDD  电源正极（＋5V） ***
+4  RS=CS *** D0, GPIO 16
+5  RW=Data *** D6, GPIO 12
+6  E=CLK *** D5, GPIO 14
+19  BLA  背光源正极 *** 
+20  BLK  背光源负极　*** -> GND
+
