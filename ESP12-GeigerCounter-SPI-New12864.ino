@@ -78,6 +78,8 @@ unsigned long previousMillis;                            // Time measurement
 
 time_t nowTime;
 const String degree = String((char)176);
+const String microSymbol = String((char)181);
+
 int lightLevel[10];
 int draw_state = 1;
 
@@ -535,18 +537,18 @@ void drawLocal() {
   display.drawStr(0, 13, string2char(temp));
 
   char outstr1[20];
-  dtostrf(radioActivityRem, 18, 3, outstr1);
+  dtostrf(radioActivityRem, 18, 2, outstr1);
   String converted1 = String(outstr1);
   converted1.trim();
-  converted1 = "mR: " + converted1;
+  converted1 = "mR/h: " + converted1;
   stringWidth = display.getStrWidth(string2char(converted1));
   display.drawStr(127 - stringWidth, 13, string2char((converted1)));
 
   char outstr[20];
-  dtostrf(radioActivity, 18, 4, outstr);
+  dtostrf(radioActivity, 18, 3, outstr);
   String converted = String(outstr);
   converted.trim();
-  converted = "uSv: " + converted;
+  converted = microSymbol + "Sv/h: " + converted;
   stringWidth = display.getStrWidth(string2char(converted));
   display.drawStr(0, 25, string2char((converted)));
 
