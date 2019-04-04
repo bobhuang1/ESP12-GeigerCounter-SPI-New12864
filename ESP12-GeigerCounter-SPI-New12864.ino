@@ -461,6 +461,7 @@ void drawLocal() {
   char buff[20];
 
   float radioActivity = cpm * 0.0057;
+  float radioActivityRem = radioActivity * 10;
 
   display.enableUTF8Print();
   display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
@@ -475,45 +476,56 @@ void drawLocal() {
   display.print(WindDirectionAndSpeed);
 
   String safetyLevel = "安全";
+  String converted2 = "< 3.42";
+
   if (radioActivity < 3.42)
   {
     safetyLevel = "背景辐射，非常安全";
+    converted2 = "< 3.42";
   }
   else if (radioActivity < 5.7)
   {
     safetyLevel = "有辐射，基本安全";
+    converted2 = "< 5.7";
   }
   else if (radioActivity < 10)
   {
-    safetyLevel = "中辐射，长期可能患癌";
+    safetyLevel = "中辐射，长期能患癌";
+    converted2 = "< 10";
   }
   else if (radioActivity < 1000)
   {
-    safetyLevel = "强辐射，长期可能患癌";
+    safetyLevel = "强辐射，长期能患癌";
+    converted2 = "< 1000";
   }
   else if (radioActivity < 3500)
   {
     safetyLevel = "很强辐射，长期患癌";
+    converted2 = "< 3500";
   }
   else if (radioActivity < 10000)
   {
     safetyLevel = "超强辐射，明显症状";
+    converted2 = "< 10000";
   }
   else if (radioActivity < 41000)
   {
-    safetyLevel = "极强辐射，5%死亡率";
+    safetyLevel = "极强辐射，5%死亡";
+    converted2 = "< 41000";
   }
   else if (radioActivity < 83000)
   {
-    safetyLevel = "极强辐射，50%死亡率";
+    safetyLevel = "极强辐射，50%死亡";
+    converted2 = "< 83000";
   }
   else if (radioActivity < 333000)
   {
-    safetyLevel = "致死辐射，100%死亡率";
+    safetyLevel = "致死辐射，100%死亡";
+    converted2 = "< 333000";
   }
-  display.setCursor(0, 39);
+  stringWidth = display.getUTF8Width(string2char(safetyLevel));
+  display.setCursor((127 - stringWidth) / 2, 39);
   display.print(safetyLevel);
-
   display.disableUTF8Print();
 
   //  display.setFont(u8g2_font_helvR24_tn); // u8g2_font_inb21_ mf, u8g2_font_helvR24_tn
@@ -522,21 +534,29 @@ void drawLocal() {
   String temp = "CPM: " + String(cpm);
   display.drawStr(0, 13, string2char(temp));
 
+  char outstr1[20];
+  dtostrf(radioActivityRem, 18, 3, outstr1);
+  String converted1 = String(outstr1);
+  converted1.trim();
+  converted1 = "mR: " + converted1;
+  stringWidth = display.getStrWidth(string2char(converted1));
+  display.drawStr(127 - stringWidth, 13, string2char((converted1)));
+
   char outstr[20];
   dtostrf(radioActivity, 18, 4, outstr);
   String converted = String(outstr);
   converted.trim();
-  converted = "uSv/hr: " + converted;
-  display.drawStr(0, 25, string2char((String(converted))));
+  converted = "uSv: " + converted;
+  stringWidth = display.getStrWidth(string2char(converted));
+  display.drawStr(0, 25, string2char((converted)));
 
+  converted2.trim();
+  stringWidth = display.getStrWidth(string2char(converted2));
+  display.drawStr(127 - stringWidth, 25, string2char((converted2)));
 
   display.setFont(u8g2_font_helvB08_tf);
   sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
   display.drawStr(0, 53, buff);
-
-
-
-  display.setFont(u8g2_font_helvB08_tf);
 
   display.drawHLine(0, 51, 128);
 }
