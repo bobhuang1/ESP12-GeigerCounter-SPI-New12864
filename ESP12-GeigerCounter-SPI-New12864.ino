@@ -597,7 +597,7 @@ void drawLocal() {
   display.drawStr(0, 13, string2char(temp));
 
   stringWidth = display.getStrWidth(string2char(String(cpm1)));
-  display.drawStr((127 - stringWidth) / 2, 13, string2char(String(cpm1)));
+  display.drawStr((127 - stringWidth) / 2 + 8, 13, string2char(String(cpm1)));
 
   stringWidth = display.getStrWidth(string2char(String(cpm10)));
   display.drawStr(127 - stringWidth, 13, string2char(String(cpm10)));
