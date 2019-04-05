@@ -28,6 +28,8 @@
 
 const String WDAY_NAMES[] = { "星期天", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六" };
 #define LOG_PERIOD 20000 //Logging period in milliseconds
+#define LOG_1_PERIOD 60000 //Logging period in milliseconds
+#define LOG_10_PERIOD 60000 //Logging period in milliseconds
 #define MINUTE_PERIOD 60000
 
 
@@ -38,9 +40,9 @@ bool dummyMode = false;
 bool backlightOffMode = false;
 bool sendAlarmEmail = false;
 String alarmEmailAddress = "Email";
-int displayContrast = 128;
-int displayMultiplier = 100;
-int displayBias = 0;
+int displayContrast = 110;
+int displayMultiplier = 200;
+int displayBias = 15;
 int displayMinimumLevel = 1;
 int displayMaximumLevel = 1023;
 int temperatureMultiplier = 100;
@@ -73,8 +75,15 @@ U8G2_ST7920_128X64_F_SW_SPI display(U8G2_R2, /* clo  ck=*/ 14 /* A4 */ , /* data
 #endif
 
 volatile unsigned long counts = 0;                       // Tube events
+volatile unsigned long counts1 = 0;                       // Tube events
+volatile unsigned long counts10 = 0;                       // Tube events
 unsigned long cpm = 0;                                   // CPM
+unsigned long cpm1 = 0;                                   // CPM
+unsigned long cpm10 = 0;                                   // CPM
 unsigned long previousMillis;                            // Time measurement
+unsigned long previous1Millis;                            // Time measurement
+unsigned long previous10Millis;                            // Time measurement
+
 
 time_t nowTime;
 const String degree = String((char)176);
@@ -128,7 +137,16 @@ bool readPoem = false;
 
 
 void geigerHandler() { // Captures count of events from Geiger counter board
-  counts++;
+  counts ++;
+  counts1 ++;
+  counts10 ++;
+  shortGeigerBeep(ALARMPIN,
+#ifdef USE_HIGH_ALARM
+                  true
+#else
+                  false
+#endif
+                 );
 }
 
 void setup() {
@@ -182,51 +200,58 @@ void setup() {
 #endif
   );
 
-  if (WiFi.status() != WL_CONNECTED) ESP.restart();
-
-  // Get time from network time service
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    // Get time from network time service
 #ifdef DEBUG
-  Serial.println("WIFI Connected");
+    Serial.println("WIFI Connected");
 #endif
-  drawProgress("连接WIFI成功,", "正在同步时间...");
-  configTime(TZ_SEC, DST_SEC, "pool.ntp.org");
-  writeBootWebSite(SERIAL_NUMBER);
-  readValueWebSite(SERIAL_NUMBER, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias);
-  setContrastSub();
-  Serial.print("Location: ");
-  Serial.println(Location);
-  Serial.print("Token: ");
-  Serial.println(Token);
-  Serial.print("Resistor: ");
-  Serial.println(Resistor);
-  Serial.print("dummyMode: ");
-  Serial.println(dummyMode);
-  Serial.print("backlightOffMode: ");
-  Serial.println(backlightOffMode);
-  Serial.print("sendAlarmEmail: ");
-  Serial.println(sendAlarmEmail);
-  Serial.print("alarmEmailAddress: ");
-  Serial.println(alarmEmailAddress);
-  Serial.print("displayContrast: ");
-  Serial.println(displayContrast);
-  Serial.print("displayMultiplier: ");
-  Serial.println(displayMultiplier);
-  Serial.print("displayBias: ");
-  Serial.println(displayBias);
-  Serial.print("displayMinimumLevel: ");
-  Serial.println(displayMinimumLevel);
-  Serial.print("displayMaximumLevel: ");
-  Serial.println(displayMaximumLevel);
-  Serial.print("temperatureMultiplier: ");
-  Serial.println(temperatureMultiplier);
-  Serial.print("temperatureBias: ");
-  Serial.println(temperatureBias);
-  Serial.print("humidityMultiplier: ");
-  Serial.println(humidityMultiplier);
-  Serial.print("humidityBias: ");
-  Serial.println(humidityBias);
-  Serial.println("");
-  drawProgress("同步时间成功,", "正在启动中...");
+    drawProgress("连接WIFI成功,", "正在同步时间...");
+    configTime(TZ_SEC, DST_SEC, "pool.ntp.org");
+    writeBootWebSite(SERIAL_NUMBER);
+    readValueWebSite(SERIAL_NUMBER, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias);
+    setContrastSub();
+#ifdef DEBUG
+    Serial.print("Location: ");
+    Serial.println(Location);
+    Serial.print("Token: ");
+    Serial.println(Token);
+    Serial.print("Resistor: ");
+    Serial.println(Resistor);
+    Serial.print("dummyMode: ");
+    Serial.println(dummyMode);
+    Serial.print("backlightOffMode: ");
+    Serial.println(backlightOffMode);
+    Serial.print("sendAlarmEmail: ");
+    Serial.println(sendAlarmEmail);
+    Serial.print("alarmEmailAddress: ");
+    Serial.println(alarmEmailAddress);
+    Serial.print("displayContrast: ");
+    Serial.println(displayContrast);
+    Serial.print("displayMultiplier: ");
+    Serial.println(displayMultiplier);
+    Serial.print("displayBias: ");
+    Serial.println(displayBias);
+    Serial.print("displayMinimumLevel: ");
+    Serial.println(displayMinimumLevel);
+    Serial.print("displayMaximumLevel: ");
+    Serial.println(displayMaximumLevel);
+    Serial.print("temperatureMultiplier: ");
+    Serial.println(temperatureMultiplier);
+    Serial.print("temperatureBias: ");
+    Serial.println(temperatureBias);
+    Serial.print("humidityMultiplier: ");
+    Serial.println(humidityMultiplier);
+    Serial.print("humidityBias: ");
+    Serial.println(humidityBias);
+    Serial.println("");
+#endif
+    drawProgress("同步时间成功,", "正在启动中...");
+  }
+  else
+  {
+    drawProgress("连接WIFI失败,", "继续启动...");
+  }
   interrupts();                                                            // Enable interrupts
   attachInterrupt(digitalPinToInterrupt(GEIGERPIN), geigerHandler, FALLING); // Define interrupt on falling edge
 }
@@ -313,9 +338,11 @@ void setContrastSub() {
   if (displayContrast > 0)
   {
     display.setContrast(displayContrast);
+#ifdef DEBUG
     Serial.print("Set displayContrast to: ");
     Serial.println(displayContrast);
     Serial.println();
+#endif
   }
 }
 
@@ -325,7 +352,36 @@ void loop() {
   {
     previousMillis = currentMillis;
     cpm = counts * MINUTE_PERIOD / LOG_PERIOD;
+#ifdef DEBUG
+    Serial.print("CPM: ");
+    Serial.println(cpm);
+    Serial.println();
+#endif
     counts = 0;
+  }
+
+  if (currentMillis - previous1Millis > LOG_1_PERIOD)
+  {
+    previous1Millis = currentMillis;
+    cpm1 = counts1 * MINUTE_PERIOD / LOG_1_PERIOD;
+#ifdef DEBUG
+    Serial.print("CPM 1: ");
+    Serial.println(cpm1);
+    Serial.println();
+#endif
+    counts1 = 0;
+  }
+
+  if (currentMillis - previous10Millis > LOG_10_PERIOD)
+  {
+    previous10Millis = currentMillis;
+    cpm10 = counts10 * MINUTE_PERIOD / LOG_10_PERIOD;
+#ifdef DEBUG
+    Serial.print("CPM 10: ");
+    Serial.println(cpm10);
+    Serial.println();
+#endif
+    counts10 = 0;
   }
 
   if (buttonPushCounter >= LONGBUTTONPUSH)
@@ -463,14 +519,18 @@ void drawLocal() {
   char buff[20];
 
   float radioActivity = cpm * 0.0057;
-  float radioActivityRem = radioActivity * 10;
+  float radioActivity1 = cpm1 * 0.0057;
+  float radioActivity10 = cpm10 * 0.0057;
 
   display.enableUTF8Print();
   display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
   String stringText = String(timeInfo->tm_year + 1900) + "年" + String(timeInfo->tm_mon + 1) + "月" + String(timeInfo->tm_mday) + "日 " + WDAY_NAMES[timeInfo->tm_wday].c_str();
   int stringWidth = display.getUTF8Width(string2char(stringText));
-  display.setCursor((128 - stringWidth) / 2, 1);
-  display.print(stringText);
+  if (WiFi.status() == WL_CONNECTED && timeInfo->tm_year != 70)
+  {
+    display.setCursor((128 - stringWidth) / 2, 1);
+    display.print(stringText);
+  }
 
   String WindDirectionAndSpeed = "核辐射检测仪";
   stringWidth = display.getUTF8Width(string2char(WindDirectionAndSpeed));
@@ -536,30 +596,46 @@ void drawLocal() {
   String temp = "CPM: " + String(cpm);
   display.drawStr(0, 13, string2char(temp));
 
-  char outstr1[20];
-  dtostrf(radioActivityRem, 18, 2, outstr1);
-  String converted1 = String(outstr1);
-  converted1.trim();
-  converted1 = "mR/h: " + converted1;
-  stringWidth = display.getStrWidth(string2char(converted1));
-  display.drawStr(127 - stringWidth, 13, string2char((converted1)));
+  stringWidth = display.getStrWidth(string2char(String(cpm1)));
+  display.drawStr((127 - stringWidth) / 2, 13, string2char(String(cpm1)));
+
+  stringWidth = display.getStrWidth(string2char(String(cpm10)));
+  display.drawStr(127 - stringWidth, 13, string2char(String(cpm10)));
 
   char outstr[20];
-  dtostrf(radioActivity, 18, 3, outstr);
+  dtostrf(radioActivity, 18, 2, outstr);
   String converted = String(outstr);
   converted.trim();
-  converted = microSymbol + "Sv/h: " + converted;
+  converted = microSymbol + "Sv: " + converted;
   stringWidth = display.getStrWidth(string2char(converted));
   display.drawStr(0, 25, string2char((converted)));
 
-  converted2.trim();
-  stringWidth = display.getStrWidth(string2char(converted2));
-  display.drawStr(127 - stringWidth, 25, string2char((converted2)));
+  char outstr0[20];
+  dtostrf(radioActivity1, 18, 2, outstr0);
+  String converted0 = String(outstr0);
+  converted0.trim();
+  stringWidth = display.getStrWidth(string2char(converted0));
+  display.drawStr((127 - stringWidth) / 2 + 10, 25, string2char((converted0)));
+
+  char outstr1[20];
+  dtostrf(radioActivity10, 18, 2, outstr1);
+  String converted1 = String(outstr1);
+  converted1.trim();
+  stringWidth = display.getStrWidth(string2char(converted1));
+  display.drawStr(127 - stringWidth, 25, string2char((converted1)));
+
+  /*
+    converted2.trim();
+    stringWidth = display.getStrWidth(string2char(converted2));
+    display.drawStr(127 - stringWidth, 25, string2char((converted2)));
+  */
 
   display.setFont(u8g2_font_helvB08_tf);
   sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
-  display.drawStr(0, 53, buff);
-
+  if (WiFi.status() == WL_CONNECTED && timeInfo->tm_year != 70)
+  {
+    display.drawStr(0, 53, buff);
+  }
   display.drawHLine(0, 51, 128);
 }
 
@@ -658,5 +734,20 @@ void drawPoem(void) {
   stringWidth = display.getStrWidth(string2char(String(poemTotal)));
   display.setCursor(128 - stringWidth, 53);
   display.print(poemTotal);
+}
+
+void shortGeigerBeep(int alarmPIN, bool bolUseHighAlarm) {
+  if (bolUseHighAlarm)
+  {
+    digitalWrite(alarmPIN, HIGH);
+    delay(1);
+    digitalWrite(alarmPIN, LOW);
+  }
+  else
+  {
+    digitalWrite(alarmPIN, LOW);
+    delay(1);
+    digitalWrite(alarmPIN, HIGH);
+  }
 }
 
