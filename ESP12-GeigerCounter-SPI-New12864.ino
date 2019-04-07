@@ -10,11 +10,13 @@
 #include <SPI.h>
 #include <WiFiManager.h>
 #include <Wire.h>
+#include <ESP8266httpUpdate.h>
 #include "FS.h"
 #include "GarfieldCommon.h"
 
 #define DEBUG
-#define SERIAL_NUMBER 601
+#define SERIAL_NUMBER 602
+#define CURRENT_VERSION 1.0
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define USE_HIGH_ALARM       // disable - LOW alarm sounds, enable - HIGH alarm sounds
 
@@ -24,9 +26,37 @@
 
 #if SERIAL_NUMBER == 601
 #define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
+//#define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN
 #endif
 
-const String WDAY_NAMES[] = { "星期天", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六" };
+#if SERIAL_NUMBER == 602
+#define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
+#define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN
+#endif
+
+
+const unsigned char iconNuclear[] = {
+  0xF0, 0x00, 0xFC, 0x03, 0xF2, 0x06, 0xF2, 0x04, 0x61, 0x08, 0x61, 0x08,
+  0xFF, 0x0F, 0x9F, 0x0F, 0x9E, 0x07, 0x0E, 0x07, 0x0C, 0x03, 0xF0, 0x00
+};
+
+const unsigned char iconSpeaker[] = {
+  0x60, 0x00, 0x70, 0x02, 0x58, 0x04, 0x4C, 0x09, 0x47, 0x0A, 0x45, 0x0A,
+  0x45, 0x0A, 0x47, 0x0B, 0x4C, 0x09, 0x58, 0x04, 0x70, 0x02, 0x60, 0x00
+};
+
+const unsigned char iconMute[] = {
+  0x60, 0x00, 0x70, 0x00, 0x58, 0x00, 0xCC, 0x08, 0x47, 0x05, 0x45, 0x02,
+  0x45, 0x05, 0xC7, 0x08, 0x4C, 0x00, 0x58, 0x00, 0x70, 0x00, 0x60, 0x00
+};
+
+
+#ifdef LANGUAGE_CN
+const String WDAY_NAMES[] = { "日", "一", "二", "三", "四", "五", "六" };
+#else
+const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
+#endif
+
 #define LOG_PERIOD 20000 //Logging period in milliseconds
 #define LOG_1_PERIOD 60000 //Logging period in milliseconds
 #define LOG_10_PERIOD 60000 //Logging period in milliseconds
@@ -98,55 +128,23 @@ int lastButtonState = LOW;   // the previous reading from the input pin
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 const unsigned long debounceDelay = 30;    // the debounce time; increase if the output flickers
-
-#if DISPLAY_TYPE == 1
-#define LONGBUTTONPUSH 30
-#endif
-
-#if DISPLAY_TYPE == 2
-#define LONGBUTTONPUSH 80
-#endif
-
-#if DISPLAY_TYPE == 3
-#define LONGBUTTONPUSH 40
-#endif
-
-#if DISPLAY_TYPE == 4
-#define LONGBUTTONPUSH 40
-#endif
-
-int buttonPushCounter = 0;
-int majorMode = 0; // 0-Clock Mode, 1-Math Mode, 2-80 Poems, 3-300Poems-not possible out of memory
-
-int questionCount = 0;
-const int questionTotal = 100;
-int currentMode = 0; // 0 - show question, 1 - show answer
-String currentQuestion = "";
-String currentAnswer = "";
-
-int lineCount = 0;
-int lineTotal = 1;
-int poemCount = 1;
-const int poemTotal = 10;
-#define TOTAL_POEMS  96 // Total number of poems
-#define MAXIMUM_POEM_SIZE 11 //11 for 80 poems, 121 for 300 poems
-
-String poemText[MAXIMUM_POEM_SIZE];
-int currentPoem = 1;
-bool readPoem = false;
+bool geigerBeep = true;
 
 
 void geigerHandler() { // Captures count of events from Geiger counter board
   counts ++;
   counts1 ++;
   counts10 ++;
-  shortGeigerBeep(ALARMPIN,
+  if (geigerBeep)
+  {
+    shortGeigerBeep(ALARMPIN,
 #ifdef USE_HIGH_ALARM
-                  true
+                    true
 #else
-                  false
+                    false
 #endif
-                 );
+                   );
+  }
 }
 
 void setup() {
@@ -194,9 +192,17 @@ void setup() {
   selfTestBacklight(BACKLIGHTPIN);
 
 #ifdef USE_WIFI_MANAGER
+#ifdef LANGUAGE_CN
   drawProgress("连接WIFI:", "IBECloc12864-HW");
 #else
+  drawProgress("Connect to WIFI:", "IBECloc12864-HW");
+#endif
+#else
+#ifdef LANGUAGE_CN
   drawProgress("连接WIFI中,", "请稍等...");
+#else
+  drawProgress("Connecting WIFI,", "Please Wait...");
+#endif
 #endif
 
   connectWIFI(
@@ -213,7 +219,11 @@ void setup() {
 #ifdef DEBUG
     Serial.println("WIFI Connected");
 #endif
+#ifdef LANGUAGE_CN
     drawProgress("连接WIFI成功,", "正在同步时间...");
+#else
+    drawProgress("WIFI Connected,", "NTP Time Sync...");
+#endif
     configTime(TZ_SEC, DST_SEC, "pool.ntp.org");
     writeBootWebSite(SERIAL_NUMBER);
     readValueWebSite(SERIAL_NUMBER, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias);
@@ -253,12 +263,28 @@ void setup() {
     Serial.println(humidityBias);
     Serial.println("");
 #endif
+#ifdef LANGUAGE_CN
     drawProgress("同步时间成功,", "正在启动中...");
+#else
+    drawProgress("Time Sync Success,", "Booting...");
+#endif
   }
   else
   {
+#ifdef LANGUAGE_CN
     drawProgress("连接WIFI失败,", "继续启动...");
+#else
+    drawProgress("WIFI Connect Failed,", "Booting...");
+#endif
   }
+
+#ifdef LANGUAGE_CN
+    drawProgress("自动更新固件,", "请稍等...");
+#else
+    drawProgress("Updating Firmware,", "Please Wait...");
+#endif
+  autoOTAUpdate(String(CURRENT_VERSION), String(SERIAL_NUMBER));
+
   interrupts();                                                            // Enable interrupts
   attachInterrupt(digitalPinToInterrupt(GEIGERPIN), geigerHandler, FALLING); // Define interrupt on falling edge
 }
@@ -270,14 +296,6 @@ void adjustBackLightSub() {
 void detectButtonPush() {
   int reading;
   reading = digitalRead(BUTTONPIN);
-  if (reading == HIGH)
-  {
-    buttonPushCounter++;
-  }
-  else
-  {
-    buttonPushCounter = 0;
-  }
   if (reading != lastButtonState) {
     lastDebounceTime = millis();
   }
@@ -289,52 +307,21 @@ void detectButtonPush() {
       buttonState = reading;
       if (buttonState == HIGH)
       {
-        shortBeep(ALARMPIN,
+        if (geigerBeep)
+        {
+          geigerBeep = false;
+        }
+        else
+        {
+          geigerBeep = true;
+          shortGeigerBeep(ALARMPIN,
 #ifdef USE_HIGH_ALARM
-                  true
+                          true
 #else
-                  false
+                          false
 #endif
-                 );
-        if (majorMode == 0)
-        {
+                         );
         }
-        else if (majorMode == 1)
-        {
-          if (currentMode == 0)
-          {
-            currentMode = 1;
-          }
-          else
-          {
-            currentMode = 0;
-            currentQuestion = generateMathQuestion(currentAnswer);
-            questionCount++;
-            if (questionCount >= questionTotal + 1)
-            {
-              questionCount = 1;
-            }
-          }
-        }
-        else if (majorMode == 2)
-        {
-          lineCount++;
-          if (lineCount >= lineTotal)
-          {
-            lineCount = 0;
-            currentPoem = random(1, TOTAL_POEMS + 1);
-            readPoem = true;
-            poemCount++;
-            if (poemCount >= poemTotal + 1)
-            {
-              poemCount = 0;
-            }
-          }
-        }
-      }
-      else
-      {
-        buttonPushCounter = 0;
       }
     }
   }
@@ -391,45 +378,6 @@ void loop() {
     counts10 = 0;
   }
 
-  if (buttonPushCounter >= LONGBUTTONPUSH)
-  {
-    buttonPushCounter = 0;
-    draw_state = 1;
-    if (majorMode == 0)
-    {
-      majorMode = 1; // we are in Math mode, need to initialize all variables
-      questionCount = 0;
-      currentMode = 0; // 0 - show question, 1 - show answer
-      currentQuestion = generateMathQuestion(currentAnswer);
-    }
-    else if (majorMode == 1)
-    {
-      majorMode = 2; // we are in 80 Poem mode
-      currentPoem = random(1, TOTAL_POEMS + 1);
-      lineCount = 0;
-      poemCount = 1;
-      readPoem = true;
-    }
-    else
-    {
-      majorMode = 0; // we are in Clock mode
-    }
-    longBeep(ALARMPIN,
-#ifdef USE_HIGH_ALARM
-             true
-#else
-             false
-#endif
-            );
-  }
-
-  if (majorMode == 2 && readPoem)
-  {
-    String strFileName = convertPoemNumberToFileName(currentPoem, TOTAL_POEMS);
-    readPoemFromSPIFFS(strFileName, poemText, lineTotal);
-    readPoem = false;
-  }
-
   if (backlightOffMode)
   {
     nowTime = time(nullptr);
@@ -453,69 +401,58 @@ void loop() {
   display.firstPage();
   do {
     draw();
-
     draw_state++;
   } while ( display.nextPage() );
 
-  if (majorMode == 0)
+  if (draw_state >= 10)
   {
-    if (draw_state >= 10)
-    {
-      draw_state = 1;
-    }
-  }
-  else if (majorMode == 1)
-  {
-    if (draw_state >= 10)
-    {
-      draw_state = 1;
-    }
-  }
-  else if (majorMode == 2)
-  {
-    if (draw_state >= 121)
-    {
-      draw_state = 1;
-    }
+    draw_state = 1;
   }
 }
 
 void draw(void) {
   detectButtonPush();
-  if (majorMode == 0) // Clock mode
-  {
-    drawLocal();
-    detectButtonPush();
-  }
-  else if (majorMode == 1) // Math mode
-  {
-    drawMath();
-  }
-  else if (majorMode == 2) // Poem modes
-  {
-    drawPoem();
-    detectButtonPush();
-  }
+  drawLocal();
+  detectButtonPush();
 }
 
 void drawProgress(String labelLine1, String labelLine2) {
   display.clearBuffer();
+
+#ifdef LANGUAGE_CN
   display.enableUTF8Print();
   display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
+#else
+  display.setFont(u8g2_font_helvR08_tf);
+#endif
+
   int stringWidth = 1;
   if (labelLine1 != "")
   {
+#ifdef LANGUAGE_CN
     stringWidth = display.getUTF8Width(string2char(labelLine1));
+#else
+    stringWidth = display.getStrWidth(string2char(labelLine1));
+#endif
     display.setCursor((128 - stringWidth) / 2, 13);
     display.print(labelLine1);
   }
+
   if (labelLine2 != "")
   {
+#ifdef LANGUAGE_CN
     stringWidth = display.getUTF8Width(string2char(labelLine2));
+#else
+    stringWidth = display.getStrWidth(string2char(labelLine2));
+#endif
     display.setCursor((128 - stringWidth) / 2, 36);
     display.print(labelLine2);
   }
+
+#ifdef LANGUAGE_CN
   display.disableUTF8Print();
+#endif
+
   display.sendBuffer();
 }
 
@@ -529,9 +466,18 @@ void drawLocal() {
   float radioActivity1 = cpm1 * 0.0057;
   float radioActivity10 = cpm10 * 0.0057;
 
+#ifdef LANGUAGE_CN
   display.enableUTF8Print();
   display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
-  String stringText = String(timeInfo->tm_year + 1900) + "年" + String(timeInfo->tm_mon + 1) + "月" + String(timeInfo->tm_mday) + "日 " + WDAY_NAMES[timeInfo->tm_wday].c_str();
+#else
+  display.setFont(u8g2_font_helvR08_tf);
+#endif
+
+#ifdef LANGUAGE_CN
+  String stringText = String(timeInfo->tm_year + 1900) + "-" + intToTwoDigitString(timeInfo->tm_mon + 1) + "-" + intToTwoDigitString(timeInfo->tm_mday) + " " + WDAY_NAMES[timeInfo->tm_wday].c_str();
+#else
+  String stringText = String(WDAY_NAMES[timeInfo->tm_wday].c_str()) + "  " + String(timeInfo->tm_year + 1900) + "-" + intToTwoDigitString(timeInfo->tm_mon + 1) + "-" + intToTwoDigitString(timeInfo->tm_mday);
+#endif
   int stringWidth = display.getUTF8Width(string2char(stringText));
   if (WiFi.status() == WL_CONNECTED && timeInfo->tm_year != 70)
   {
@@ -539,75 +485,138 @@ void drawLocal() {
     display.print(stringText);
   }
 
+#ifdef LANGUAGE_CN
   String WindDirectionAndSpeed = "核辐射检测仪";
+#else
+  String WindDirectionAndSpeed = "Nuclear Radiation";
+#endif
+
+#ifdef LANGUAGE_CN
   stringWidth = display.getUTF8Width(string2char(WindDirectionAndSpeed));
+#else
+  stringWidth = display.getStrWidth(string2char(WindDirectionAndSpeed));
+#endif
+
   display.setCursor(127 - stringWidth, 54);
   display.print(WindDirectionAndSpeed);
 
-  String safetyLevel = "安全";
+#ifdef LANGUAGE_CN
+#else
+#endif
+  String safetyLevel = "背景辐射，非常安全";
+
   String converted2 = "< 3.42";
 
   if (radioActivity < 3.42)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "背景辐射，非常安全";
+#else
+    safetyLevel = "Background Radiation";
+#endif
     converted2 = "< 3.42";
   }
   else if (radioActivity < 5.7)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "有辐射，基本安全";
+#else
+    safetyLevel = "Light Radiation Safe";
+#endif
     converted2 = "< 5.7";
   }
   else if (radioActivity < 10)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "中辐射，长期能患癌";
+#else
+    safetyLevel = "Low Radiation Cancer Risk";
+#endif
     converted2 = "< 10";
   }
   else if (radioActivity < 1000)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "强辐射，长期能患癌";
+#else
+    safetyLevel = "Med Radiation Cancer Risk High";
+#endif
     converted2 = "< 1000";
   }
   else if (radioActivity < 3500)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "很强辐射，长期患癌";
+#else
+    safetyLevel = "High Radiation Cancer Risk High";
+#endif
     converted2 = "< 3500";
   }
   else if (radioActivity < 10000)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "超强辐射，明显症状";
+#else
+    safetyLevel = "V High Radiation Symptoms";
+#endif
     converted2 = "< 10000";
   }
   else if (radioActivity < 41000)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "极强辐射，5%死亡";
+#else
+    safetyLevel = "U High Radiation 5% Death";
+#endif
     converted2 = "< 41000";
   }
   else if (radioActivity < 83000)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "极强辐射，50%死亡";
+#else
+    safetyLevel = "Lethal Radiation 50% Death";
+#endif
     converted2 = "< 83000";
   }
   else if (radioActivity < 333000)
   {
+#ifdef LANGUAGE_CN
     safetyLevel = "致死辐射，100%死亡";
+#else
+    safetyLevel = "Lethal Radiation 100% Death";
+#endif
     converted2 = "< 333000";
   }
+
+#ifdef LANGUAGE_CN
   stringWidth = display.getUTF8Width(string2char(safetyLevel));
+#else
+  stringWidth = display.getStrWidth(string2char(safetyLevel));
+#endif
   display.setCursor((127 - stringWidth) / 2, 39);
   display.print(safetyLevel);
+#ifdef LANGUAGE_CN
   display.disableUTF8Print();
+#endif
 
-  //  display.setFont(u8g2_font_helvR24_tn); // u8g2_font_inb21_ mf, u8g2_font_helvR24_tn
+#ifdef LANGUAGE_CN
+  int secondLineY = 14;
+  int thirdLineY = 26;
+#else
+  int secondLineY = 14;
+  int thirdLineY = 27;
+#endif
 
   display.setFont(u8g2_font_helvB08_tf);
   String temp = "CPM: " + String(cpm);
-  display.drawStr(0, 13, string2char(temp));
+  display.drawStr(0, secondLineY, string2char(temp));
 
   stringWidth = display.getStrWidth(string2char(String(cpm1)));
-  display.drawStr((127 - stringWidth) / 2 + 8, 13, string2char(String(cpm1)));
+  display.drawStr((127 - stringWidth) / 2 + 8, secondLineY, string2char(String(cpm1)));
 
   stringWidth = display.getStrWidth(string2char(String(cpm10)));
-  display.drawStr(127 - stringWidth, 13, string2char(String(cpm10)));
+  display.drawStr(127 - stringWidth, secondLineY, string2char(String(cpm10)));
 
   char outstr[20];
   dtostrf(radioActivity, 18, 2, outstr);
@@ -615,21 +624,21 @@ void drawLocal() {
   converted.trim();
   converted = microSymbol + "Sv: " + converted;
   stringWidth = display.getStrWidth(string2char(converted));
-  display.drawStr(0, 25, string2char((converted)));
+  display.drawStr(0, thirdLineY, string2char((converted)));
 
   char outstr0[20];
   dtostrf(radioActivity1, 18, 2, outstr0);
   String converted0 = String(outstr0);
   converted0.trim();
   stringWidth = display.getStrWidth(string2char(converted0));
-  display.drawStr((127 - stringWidth) / 2 + 10, 25, string2char((converted0)));
+  display.drawStr((127 - stringWidth) / 2 + 10, thirdLineY, string2char((converted0)));
 
   char outstr1[20];
   dtostrf(radioActivity10, 18, 2, outstr1);
   String converted1 = String(outstr1);
   converted1.trim();
   stringWidth = display.getStrWidth(string2char(converted1));
-  display.drawStr(127 - stringWidth, 25, string2char((converted1)));
+  display.drawStr(127 - stringWidth, thirdLineY, string2char((converted1)));
 
   /*
     converted2.trim();
@@ -637,110 +646,36 @@ void drawLocal() {
     display.drawStr(127 - stringWidth, 25, string2char((converted2)));
   */
 
-  display.setFont(u8g2_font_helvB08_tf);
+  display.setFont(u8g2_font_helvR08_tf);
   sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
   if (WiFi.status() == WL_CONNECTED && timeInfo->tm_year != 70)
   {
     display.drawStr(0, 53, buff);
   }
   display.drawHLine(0, 51, 128);
-}
-
-void drawMath(void) {
-  nowTime = time(nullptr);
-  struct tm* timeInfo;
-  timeInfo = localtime(&nowTime);
-  char buff[20];
-  sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
-
-  display.setFont(u8g2_font_helvB10_tf); // u8g2_font_helvB08_tf, u8g2_font_6x13_tn
-  display.setCursor(1, 1);
-  display.print(questionCount);
-  display.print("/");
-  display.print(questionTotal);
-
-  display.setCursor(90, 1);
-  display.print(buff);
-
-  display.setFont(u8g2_font_helvB12_tf); // u8g2_font_helvB08_tf, u8g2_font_10x20_tf
-  int stringWidth = display.getStrWidth(string2char(currentAnswer));
-  display.setCursor((128 - stringWidth) / 2, 28);
-  if (currentMode == 0)
+  if (geigerBeep)
   {
-    display.print(currentQuestion);
+    display.drawXBM(113, 0, 12, 12, iconSpeaker);
+    if (radioActivity >= 3.42)
+    {
+      longBeep(ALARMPIN,
+#ifdef USE_HIGH_ALARM
+               true
+#else
+               false
+#endif
+              );
+    }
   }
   else
   {
-    display.print(currentAnswer);
+    display.drawXBM(113, 0, 12, 12, iconMute);
   }
-}
-
-void drawPoem(void) {
-  //    display.drawXBM(31, 0, 66, 64, garfield);
-  nowTime = time(nullptr);
-  struct tm* timeInfo;
-  timeInfo = localtime(&nowTime);
-  char buff[20];
-  sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
-
-  int stringWidth = 0;
-
-  display.enableUTF8Print();
-  display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
-
-  int tempLineBegin = 0;
-  int tempLineMultiply = 1;
-  int tempLineEnd = 5;
-
-  tempLineMultiply = lineCount / 5;
-  tempLineBegin = tempLineMultiply * 5;
-  tempLineEnd = tempLineBegin + 5;
-
-  if (tempLineEnd > lineCount + 1)
+  display.drawXBM(0, 0, 12, 12, iconNuclear);
+  if (radioActivity > 3)
   {
-    tempLineEnd = lineCount + 1;
+    display.drawStr(13, 1, "!!");
   }
-
-  int intMaxY = 0;
-  for (int i = tempLineBegin; i < tempLineEnd; ++i)
-  {
-    String strTemp = poemText[i];
-    if (strTemp.length() > 30)
-    {
-      // each Chinese character's length is 3 in UTF-8
-      strTemp = strTemp.substring(0, 30);
-      strTemp.trim();
-    }
-    stringWidth = display.getUTF8Width(string2char(strTemp));
-    intMaxY = (i % 5) * 13 + 1;
-    display.setCursor((128 - stringWidth) / 2, intMaxY);
-    display.print(strTemp);
-    detectButtonPush();
-  }
-  display.disableUTF8Print();
-
-  display.setFont(u8g2_font_helvB08_tf); // u8g2_font_helvB08_tf, u8g2_font_6x13_tn
-  if (intMaxY < 52)
-  {
-    display.setCursor(28, 53);
-    display.print(TOTAL_POEMS);
-    display.setCursor(70, 53);
-    display.print(buff);
-  }
-
-  display.setCursor(0, 41);
-  display.print(lineCount);
-
-  stringWidth = display.getStrWidth(string2char(String(lineTotal - 1)));
-  display.setCursor(128 - stringWidth, 41);
-  display.print(lineTotal - 1);
-
-  display.setCursor(0, 53);
-  display.print(poemCount);
-
-  stringWidth = display.getStrWidth(string2char(String(poemTotal)));
-  display.setCursor(128 - stringWidth, 53);
-  display.print(poemTotal);
 }
 
 void shortGeigerBeep(int alarmPIN, bool bolUseHighAlarm) {
@@ -756,5 +691,47 @@ void shortGeigerBeep(int alarmPIN, bool bolUseHighAlarm) {
     delay(1);
     digitalWrite(alarmPIN, HIGH);
   }
+}
+
+t_httpUpdate_return autoOTAUpdate(String currentVersion, String currentSerial) {
+  Serial.println("Begin autoOTAUpdate");
+  Serial.println(currentSerial);
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("WIFI Not Connected!");
+    return HTTP_UPDATE_FAILED;
+  }
+
+#define REMOTE_SERVER "www.gopherking.com"
+#define SKETCH_BIN "/IOTSite/bin/ota.html"
+
+  String url = REMOTE_SERVER;
+  url += SKETCH_BIN;
+  Serial.print("url: "); Serial.println(url);
+  Serial.print("REMOTE_SERVER: "); Serial.println(REMOTE_SERVER);
+  Serial.print("SKETCH_BIN: "); Serial.println(SKETCH_BIN);
+  ESPhttpUpdate.rebootOnUpdate(true);
+  t_httpUpdate_return ret = ESPhttpUpdate.update(REMOTE_SERVER, 81, SKETCH_BIN, currentSerial + "|" + currentVersion);
+  Serial.print("ret "); Serial.println(ret);
+
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+      ret = HTTP_UPDATE_FAILED;
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("HTTP_UPDATE_NO_UPDATES");
+      ret = HTTP_UPDATE_NO_UPDATES;
+      break;
+    case HTTP_UPDATE_OK:
+      Serial.println("HTTP_UPDATE_OK");
+      ret = HTTP_UPDATE_OK;
+      break;
+    default:
+      Serial.print("Undefined HTTP_UPDATE Code: "); Serial.println(ret);
+      ret = HTTP_UPDATE_FAILED;
+      break;
+  }
+  return ret;
 }
 
