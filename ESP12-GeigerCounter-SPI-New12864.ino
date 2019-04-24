@@ -14,25 +14,17 @@
 #include "FS.h"
 #include "GarfieldCommon.h"
 
-#define DEBUG
-#define SERIAL_NUMBER 602
-#define CURRENT_VERSION 1.0
+#define CURRENT_VERSION 1
+//#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define USE_HIGH_ALARM       // disable - LOW alarm sounds, enable - HIGH alarm sounds
+#define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
+#define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN, enable for 600 Chinese, disable for 601 English
+
 
 #define BUTTONPIN   4
 #define GEIGERPIN   2
 #define ALARMPIN 5
-
-#if SERIAL_NUMBER == 601
-#define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
-//#define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN
-#endif
-
-#if SERIAL_NUMBER == 602
-#define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
-#define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN
-#endif
 
 
 const unsigned char iconNuclear[] = {
@@ -63,7 +55,9 @@ const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 #define MINUTE_PERIOD 60000
 
 
-String Location = SERIAL_NUMBER + " Default";
+// Serial 600, 601
+int serialNumber = -1;
+String Location = "Default";
 String Token = "Token";
 int Resistor = 80000;
 bool dummyMode = false;
@@ -79,6 +73,8 @@ int temperatureMultiplier = 100;
 int temperatureBias = 0;
 int humidityMultiplier = 100;
 int humidityBias = 0;
+int firmwareversion = 0;
+String firmwareBin = "";
 
 #if DISPLAY_TYPE == 3
 #define BIGBLUE12864
@@ -184,7 +180,7 @@ void setup() {
            );
   delay(1000);
 
-  drawProgress(String(CompileDate), String(SERIAL_NUMBER));
+  drawProgress(String(CompileDate), String(CURRENT_VERSION));
   delay(1000);
 
   drawProgress("Backlight Level", "Test");
@@ -219,16 +215,51 @@ void setup() {
 #ifdef DEBUG
     Serial.println("WIFI Connected");
 #endif
+
 #ifdef LANGUAGE_CN
     drawProgress("连接WIFI成功,", "正在同步时间...");
 #else
     drawProgress("WIFI Connected,", "NTP Time Sync...");
 #endif
     configTime(TZ_SEC, DST_SEC, "pool.ntp.org");
-    writeBootWebSite(SERIAL_NUMBER);
-    readValueWebSite(SERIAL_NUMBER, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias);
+
+#ifdef LANGUAGE_CN
+    drawProgress("同步时间成功,", "正在启动中...");
+#else
+    drawProgress("Time Sync Success,", "Booting...");
+#endif
+
+    readValueWebSite(serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
+    if (serialNumber < 0)
+    {
+#ifdef LANGUAGE_CN
+      drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(serialNumber));
+#else
+      drawProgress("New MAC " + String(WiFi.macAddress()), "Serial: " + String(serialNumber));
+#endif
+      stopApp();
+    }
+    else if (serialNumber == 0)
+    {
+#ifdef LANGUAGE_CN
+      drawProgress("多MAC " + String(WiFi.macAddress()), "找管理员处理");
+#else
+      drawProgress("M MAC " + String(WiFi.macAddress()), "Contact Admin");
+#endif
+      stopApp();
+    }
     setContrastSub();
+#ifdef LANGUAGE_CN
+    drawProgress("Serial: " + String(serialNumber), "MAC: " + String(WiFi.macAddress()));
+#else
+    drawProgress("Serial: " + String(serialNumber), "MAC: " + String(WiFi.macAddress()));
+#endif
+    delay(1500);
 #ifdef DEBUG
+    Serial.print("MAC: ");
+    Serial.println(String(WiFi.macAddress()));
+    Serial.print("Serial: ");
+    Serial.println(serialNumber);
     Serial.print("Location: ");
     Serial.println(Location);
     Serial.print("Token: ");
@@ -261,13 +292,76 @@ void setup() {
     Serial.println(humidityMultiplier);
     Serial.print("humidityBias: ");
     Serial.println(humidityBias);
+    Serial.print("firmwareversion: ");
+    Serial.println(firmwareversion);
+    Serial.print("CURRENT_VERSION: ");
+    Serial.println(CURRENT_VERSION);
+    Serial.print("firmwareBin: ");
+    Serial.println(SETTINGS_BASE_URL + SETTINGS_OTA_BIN_URL + firmwareBin);
     Serial.println("");
 #endif
+    writeBootWebSite(serialNumber);
+    if (firmwareversion > CURRENT_VERSION)
+    {
 #ifdef LANGUAGE_CN
-    drawProgress("同步时间成功,", "正在启动中...");
+      drawProgress("自动升级中!", "请稍候......");
 #else
-    drawProgress("Time Sync Success,", "Booting...");
+      drawProgress("Auto Update,", "Please Wait...");
 #endif
+      Serial.println("Auto upgrade starting...");
+      ESPhttpUpdate.rebootOnUpdate(false);
+      t_httpUpdate_return ret = ESPhttpUpdate.update(SETTINGS_SERVER, 81, SETTINGS_BASE_URL + SETTINGS_OTA_BIN_URL + firmwareBin);
+      Serial.println("Auto upgrade finished.");
+      Serial.print("ret "); Serial.println(ret);
+      switch (ret) {
+        case HTTP_UPDATE_FAILED:
+          Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+#ifdef LANGUAGE_CN
+          drawProgress("升级错误!", "重启!");
+#else
+          drawProgress("Upgrading Error!", "Rebooting!");
+#endif
+          delay(2000);
+          ESP.restart();
+          break;
+        case HTTP_UPDATE_NO_UPDATES:
+          Serial.println("HTTP_UPDATE_NO_UPDATES");
+#ifdef LANGUAGE_CN
+          drawProgress("无需升级!", "继续启动...");
+#else
+          drawProgress("No Need To Upgrade!", "Booting!");
+#endif
+          delay(1500);
+          break;
+        case HTTP_UPDATE_OK:
+          Serial.println("HTTP_UPDATE_OK");
+#ifdef LANGUAGE_CN
+          drawProgress("升级成功!", "重启...");
+#else
+          drawProgress("Upgrade Success!", "Rebooting!");
+#endif
+          delay(2000);
+          ESP.restart();
+          break;
+        default:
+          Serial.print("Undefined HTTP_UPDATE Code: "); Serial.println(ret);
+#ifdef LANGUAGE_CN
+          drawProgress("升级错误!", "重启!");
+#else
+          drawProgress("Upgrading Error!", "Rebooting!");
+#endif
+          delay(2000);
+          ESP.restart();
+      }
+    }
+    else
+    {
+#ifdef LANGUAGE_CN
+      drawProgress("无需自动升级!", "继续启动...");
+#else
+      drawProgress("No Need To Upgrade!", "Booting!");
+#endif
+    }
   }
   else
   {
@@ -277,14 +371,6 @@ void setup() {
     drawProgress("WIFI Connect Failed,", "Booting...");
 #endif
   }
-
-#ifdef LANGUAGE_CN
-    drawProgress("自动更新固件,", "请稍等...");
-#else
-    drawProgress("Updating Firmware,", "Please Wait...");
-#endif
-  autoOTAUpdate(String(CURRENT_VERSION), String(SERIAL_NUMBER));
-
   interrupts();                                                            // Enable interrupts
   attachInterrupt(digitalPinToInterrupt(GEIGERPIN), geigerHandler, FALLING); // Define interrupt on falling edge
 }
