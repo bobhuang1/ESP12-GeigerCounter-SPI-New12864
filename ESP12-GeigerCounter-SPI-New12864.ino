@@ -221,7 +221,7 @@ void setup() {
 #else
     drawProgress("WIFI Connected,", "NTP Time Sync...");
 #endif
-    configTime(TZ_SEC, DST_SEC, "pool.ntp.org");
+    configTime(TZ_SEC, DST_SEC, NTP_SERVER);
 
 #ifdef LANGUAGE_CN
     drawProgress("同步时间成功,", "正在启动中...");
