@@ -14,14 +14,14 @@
 #include "FS.h"
 #include "GarfieldCommon.h"
 
-#define CURRENT_VERSION 1
+#define CURRENT_VERSION 2
 //#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define USE_HIGH_ALARM       // disable - LOW alarm sounds, enable - HIGH alarm sounds
 #define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
 #define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN, enable for 600 Chinese, disable for 601 English
 
-
+// Serial 600 and 602 in Chinese, 601 in English
 #define BUTTONPIN   4
 #define GEIGERPIN   2
 #define ALARMPIN 5
