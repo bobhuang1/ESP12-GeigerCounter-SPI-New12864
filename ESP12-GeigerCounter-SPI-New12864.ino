@@ -14,7 +14,7 @@
 #include "FS.h"
 #include "GarfieldCommon.h"
 
-#define CURRENT_VERSION 2
+#define CURRENT_VERSION 3
 //#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define USE_HIGH_ALARM       // disable - LOW alarm sounds, enable - HIGH alarm sounds
@@ -75,6 +75,8 @@ int humidityMultiplier = 100;
 int humidityBias = 0;
 int firmwareversion = 0;
 String firmwareBin = "";
+
+SettingsServerStruct settingsServer;
 
 #if DISPLAY_TYPE == 3
 #define BIGBLUE12864
@@ -229,7 +231,7 @@ void setup() {
     drawProgress("Time Sync Success,", "Booting...");
 #endif
 
-    readValueWebSite(serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
+    readValueWebSite(&settingsServer, serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
     if (serialNumber < 0)
     {
 #ifdef LANGUAGE_CN
@@ -297,10 +299,10 @@ void setup() {
     Serial.print("CURRENT_VERSION: ");
     Serial.println(CURRENT_VERSION);
     Serial.print("firmwareBin: ");
-    Serial.println(SETTINGS_BASE_URL + SETTINGS_OTA_BIN_URL + firmwareBin);
+    Serial.println(settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
     Serial.println("");
 #endif
-    writeBootWebSite(serialNumber);
+    writeBootWebSite(&settingsServer, serialNumber);
     if (firmwareversion > CURRENT_VERSION)
     {
 #ifdef LANGUAGE_CN
@@ -310,7 +312,7 @@ void setup() {
 #endif
       Serial.println("Auto upgrade starting...");
       ESPhttpUpdate.rebootOnUpdate(false);
-      t_httpUpdate_return ret = ESPhttpUpdate.update(SETTINGS_SERVER, 81, SETTINGS_BASE_URL + SETTINGS_OTA_BIN_URL + firmwareBin);
+      t_httpUpdate_return ret = ESPhttpUpdate.update(settingsServer.settingsServer, settingsServer.settingsPort, settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
       Serial.println("Auto upgrade finished.");
       Serial.print("ret "); Serial.println(ret);
       switch (ret) {
@@ -820,4 +822,3 @@ t_httpUpdate_return autoOTAUpdate(String currentVersion, String currentSerial) {
   }
   return ret;
 }
-
