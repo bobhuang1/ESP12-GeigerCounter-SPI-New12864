@@ -1,5 +1,4 @@
 #include <ESP8266WiFi.h>
-#include <ESPHTTPClient.h>
 #include <JsonListener.h>
 #include <stdio.h>
 #include <time.h>                   // struct timeval
@@ -10,22 +9,19 @@
 #include <SPI.h>
 #include <WiFiManager.h>
 #include <Wire.h>
-#include <ESP8266httpUpdate.h>
 #include "FS.h"
 #include "GarfieldCommon.h"
 
-#define CURRENT_VERSION 3
-//#define DEBUG
+#define CURRENT_VERSION 4
+#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
-#define USE_HIGH_ALARM       // disable - LOW alarm sounds, enable - HIGH alarm sounds
-#define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
 #define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN, enable for 600 Chinese, disable for 601 English
 
 // Serial 600 and 602 in Chinese, 601 in English
 #define BUTTONPIN   4
 #define GEIGERPIN   2
 #define ALARMPIN 5
-
+#define BACKLIGHTPIN 0
 
 const unsigned char iconNuclear[] = {
   0xF0, 0x00, 0xFC, 0x03, 0xF2, 0x06, 0xF2, 0x04, 0x61, 0x08, 0x61, 0x08,
@@ -42,7 +38,6 @@ const unsigned char iconMute[] = {
   0x45, 0x05, 0xC7, 0x08, 0x4C, 0x00, 0x58, 0x00, 0x70, 0x00, 0x60, 0x00
 };
 
-
 #ifdef LANGUAGE_CN
 const String WDAY_NAMES[] = { "日", "一", "二", "三", "四", "五", "六" };
 #else
@@ -56,51 +51,14 @@ const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 
 
 // Serial 600, 601
-int serialNumber = -1;
-String Location = "Default";
-String Token = "Token";
-int Resistor = 80000;
-bool dummyMode = false;
 bool backlightOffMode = false;
-bool sendAlarmEmail = false;
-String alarmEmailAddress = "Email";
 int displayContrast = 110;
 int displayMultiplier = 200;
 int displayBias = 15;
 int displayMinimumLevel = 1;
 int displayMaximumLevel = 1023;
-int temperatureMultiplier = 100;
-int temperatureBias = 0;
-int humidityMultiplier = 100;
-int humidityBias = 0;
-int firmwareversion = 0;
-String firmwareBin = "";
 
-SettingsServerStruct settingsServer;
-
-#if DISPLAY_TYPE == 3
-#define BIGBLUE12864
-#endif
-
-#if DISPLAY_TYPE == 1
-U8G2_ST7565_LM6059_F_4W_SW_SPI display(U8G2_R2, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_LM6059_F_4W_SW_SPI
-#define BACKLIGHTPIN 0
-#endif
-
-#if DISPLAY_TYPE == 2
 U8G2_ST7565_64128N_F_4W_SW_SPI display(U8G2_R0, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_64128N_F_4W_SW_SPI
-#define BACKLIGHTPIN 0
-#endif
-
-#if DISPLAY_TYPE == 3
-U8G2_ST7565_64128N_F_4W_SW_SPI display(U8G2_R2, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_64128N_F_4W_SW_SPI
-#define BACKLIGHTPIN 0
-#endif
-
-#if DISPLAY_TYPE == 4
-U8G2_ST7920_128X64_F_SW_SPI display(U8G2_R2, /* clo  ck=*/ 14 /* A4 */ , /* data=*/ 12 /* A2 */, /* CS=*/ 16 /* A3 */, /* reset=*/ U8X8_PIN_NONE); // 16, U8X8_PIN_NONE
-#define BACKLIGHTPIN 15
-#endif
 
 volatile unsigned long counts = 0;                       // Tube events
 volatile unsigned long counts1 = 0;                       // Tube events
@@ -128,6 +86,8 @@ unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 const unsigned long debounceDelay = 30;    // the debounce time; increase if the output flickers
 bool geigerBeep = true;
 
+void ICACHE_RAM_ATTR geigerHandler ();
+
 
 void geigerHandler() { // Captures count of events from Geiger counter board
   counts ++;
@@ -135,13 +95,7 @@ void geigerHandler() { // Captures count of events from Geiger counter board
   counts10 ++;
   if (geigerBeep)
   {
-    shortGeigerBeep(ALARMPIN,
-#ifdef USE_HIGH_ALARM
-                    true
-#else
-                    false
-#endif
-                   );
+    shortGeigerBeep(ALARMPIN, true);
   }
 }
 
@@ -157,13 +111,7 @@ void setup() {
   pinMode(BUTTONPIN, INPUT);
   pinMode(GEIGERPIN, INPUT);
   pinMode(ALARMPIN, OUTPUT);
-  noBeep(ALARMPIN,
-#ifdef USE_HIGH_ALARM
-         true
-#else
-         false
-#endif
-        );
+  noBeep(ALARMPIN, true);
   listSPIFFSFiles(); // Lists the files so you can see what is in the SPIFFS
 
   display.begin();
@@ -173,13 +121,7 @@ void setup() {
   display.clearBuffer();
   display.drawXBM(31, 0, 66, 64, garfield);
   display.sendBuffer();
-  shortBeep(ALARMPIN,
-#ifdef USE_HIGH_ALARM
-            true
-#else
-            false
-#endif
-           );
+  shortBeep(ALARMPIN, true);
   delay(1000);
 
   drawProgress(String(CompileDate), String(CURRENT_VERSION));
@@ -230,148 +172,6 @@ void setup() {
 #else
     drawProgress("Time Sync Success,", "Booting...");
 #endif
-
-    readValueWebSite(&settingsServer, serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
-    if (serialNumber < 0)
-    {
-#ifdef LANGUAGE_CN
-      drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(serialNumber));
-#else
-      drawProgress("New MAC " + String(WiFi.macAddress()), "Serial: " + String(serialNumber));
-#endif
-      stopApp();
-    }
-    else if (serialNumber == 0)
-    {
-#ifdef LANGUAGE_CN
-      drawProgress("多MAC " + String(WiFi.macAddress()), "找管理员处理");
-#else
-      drawProgress("M MAC " + String(WiFi.macAddress()), "Contact Admin");
-#endif
-      stopApp();
-    }
-    setContrastSub();
-#ifdef LANGUAGE_CN
-    drawProgress("Serial: " + String(serialNumber), "MAC: " + String(WiFi.macAddress()));
-#else
-    drawProgress("Serial: " + String(serialNumber), "MAC: " + String(WiFi.macAddress()));
-#endif
-    delay(1500);
-#ifdef DEBUG
-    Serial.print("MAC: ");
-    Serial.println(String(WiFi.macAddress()));
-    Serial.print("Serial: ");
-    Serial.println(serialNumber);
-    Serial.print("Location: ");
-    Serial.println(Location);
-    Serial.print("Token: ");
-    Serial.println(Token);
-    Serial.print("Resistor: ");
-    Serial.println(Resistor);
-    Serial.print("dummyMode: ");
-    Serial.println(dummyMode);
-    Serial.print("backlightOffMode: ");
-    Serial.println(backlightOffMode);
-    Serial.print("sendAlarmEmail: ");
-    Serial.println(sendAlarmEmail);
-    Serial.print("alarmEmailAddress: ");
-    Serial.println(alarmEmailAddress);
-    Serial.print("displayContrast: ");
-    Serial.println(displayContrast);
-    Serial.print("displayMultiplier: ");
-    Serial.println(displayMultiplier);
-    Serial.print("displayBias: ");
-    Serial.println(displayBias);
-    Serial.print("displayMinimumLevel: ");
-    Serial.println(displayMinimumLevel);
-    Serial.print("displayMaximumLevel: ");
-    Serial.println(displayMaximumLevel);
-    Serial.print("temperatureMultiplier: ");
-    Serial.println(temperatureMultiplier);
-    Serial.print("temperatureBias: ");
-    Serial.println(temperatureBias);
-    Serial.print("humidityMultiplier: ");
-    Serial.println(humidityMultiplier);
-    Serial.print("humidityBias: ");
-    Serial.println(humidityBias);
-    Serial.print("firmwareversion: ");
-    Serial.println(firmwareversion);
-    Serial.print("CURRENT_VERSION: ");
-    Serial.println(CURRENT_VERSION);
-    Serial.print("firmwareBin: ");
-    Serial.println(settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
-    Serial.println("");
-#endif
-    writeBootWebSite(&settingsServer, serialNumber);
-    if (firmwareversion > CURRENT_VERSION)
-    {
-#ifdef LANGUAGE_CN
-      drawProgress("自动升级中!", "请稍候......");
-#else
-      drawProgress("Auto Update,", "Please Wait...");
-#endif
-      Serial.println("Auto upgrade starting...");
-      ESPhttpUpdate.rebootOnUpdate(false);
-      t_httpUpdate_return ret = ESPhttpUpdate.update(settingsServer.settingsServer, settingsServer.settingsPort, settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
-      Serial.println("Auto upgrade finished.");
-      Serial.print("ret "); Serial.println(ret);
-      switch (ret) {
-        case HTTP_UPDATE_FAILED:
-          Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-#ifdef LANGUAGE_CN
-          drawProgress("升级错误!", "重启!");
-#else
-          drawProgress("Upgrading Error!", "Rebooting!");
-#endif
-          delay(2000);
-          ESP.restart();
-          break;
-        case HTTP_UPDATE_NO_UPDATES:
-          Serial.println("HTTP_UPDATE_NO_UPDATES");
-#ifdef LANGUAGE_CN
-          drawProgress("无需升级!", "继续启动...");
-#else
-          drawProgress("No Need To Upgrade!", "Booting!");
-#endif
-          delay(1500);
-          break;
-        case HTTP_UPDATE_OK:
-          Serial.println("HTTP_UPDATE_OK");
-#ifdef LANGUAGE_CN
-          drawProgress("升级成功!", "重启...");
-#else
-          drawProgress("Upgrade Success!", "Rebooting!");
-#endif
-          delay(2000);
-          ESP.restart();
-          break;
-        default:
-          Serial.print("Undefined HTTP_UPDATE Code: "); Serial.println(ret);
-#ifdef LANGUAGE_CN
-          drawProgress("升级错误!", "重启!");
-#else
-          drawProgress("Upgrading Error!", "Rebooting!");
-#endif
-          delay(2000);
-          ESP.restart();
-      }
-    }
-    else
-    {
-#ifdef LANGUAGE_CN
-      drawProgress("无需自动升级!", "继续启动...");
-#else
-      drawProgress("No Need To Upgrade!", "Booting!");
-#endif
-    }
-  }
-  else
-  {
-#ifdef LANGUAGE_CN
-    drawProgress("连接WIFI失败,", "继续启动...");
-#else
-    drawProgress("WIFI Connect Failed,", "Booting...");
-#endif
   }
   interrupts();                                                            // Enable interrupts
   attachInterrupt(digitalPinToInterrupt(GEIGERPIN), geigerHandler, FALLING); // Define interrupt on falling edge
@@ -402,13 +202,7 @@ void detectButtonPush() {
         else
         {
           geigerBeep = true;
-          shortGeigerBeep(ALARMPIN,
-#ifdef USE_HIGH_ALARM
-                          true
-#else
-                          false
-#endif
-                         );
+          shortGeigerBeep(ALARMPIN, true);
         }
       }
     }
@@ -746,13 +540,7 @@ void drawLocal() {
     display.drawXBM(113, 0, 12, 12, iconSpeaker);
     if (radioActivity >= 3.42)
     {
-      longBeep(ALARMPIN,
-#ifdef USE_HIGH_ALARM
-               true
-#else
-               false
-#endif
-              );
+      longBeep(ALARMPIN, true);
     }
   }
   else
@@ -779,46 +567,4 @@ void shortGeigerBeep(int alarmPIN, bool bolUseHighAlarm) {
     delay(1);
     digitalWrite(alarmPIN, HIGH);
   }
-}
-
-t_httpUpdate_return autoOTAUpdate(String currentVersion, String currentSerial) {
-  Serial.println("Begin autoOTAUpdate");
-  Serial.println(currentSerial);
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.println("WIFI Not Connected!");
-    return HTTP_UPDATE_FAILED;
-  }
-
-#define REMOTE_SERVER "www.gopherking.com"
-#define SKETCH_BIN "/IOTSite/bin/ota.html"
-
-  String url = REMOTE_SERVER;
-  url += SKETCH_BIN;
-  Serial.print("url: "); Serial.println(url);
-  Serial.print("REMOTE_SERVER: "); Serial.println(REMOTE_SERVER);
-  Serial.print("SKETCH_BIN: "); Serial.println(SKETCH_BIN);
-  ESPhttpUpdate.rebootOnUpdate(true);
-  t_httpUpdate_return ret = ESPhttpUpdate.update(REMOTE_SERVER, 81, SKETCH_BIN, currentSerial + "|" + currentVersion);
-  Serial.print("ret "); Serial.println(ret);
-
-  switch (ret) {
-    case HTTP_UPDATE_FAILED:
-      Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-      ret = HTTP_UPDATE_FAILED;
-      break;
-    case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("HTTP_UPDATE_NO_UPDATES");
-      ret = HTTP_UPDATE_NO_UPDATES;
-      break;
-    case HTTP_UPDATE_OK:
-      Serial.println("HTTP_UPDATE_OK");
-      ret = HTTP_UPDATE_OK;
-      break;
-    default:
-      Serial.print("Undefined HTTP_UPDATE Code: "); Serial.println(ret);
-      ret = HTTP_UPDATE_FAILED;
-      break;
-  }
-  return ret;
 }
