@@ -133,9 +133,9 @@ void setup() {
 
 #ifdef USE_WIFI_MANAGER
 #ifdef LANGUAGE_CN
-  drawProgress("连接WIFI:", "IBECloc12864-HW");
+  drawProgress("连接WIFI:", "ESP8266-Setup");
 #else
-  drawProgress("Connect to WIFI:", "IBECloc12864-HW");
+  drawProgress("Connect to WIFI:", "ESP8266-Setup");
 #endif
 #else
 #ifdef LANGUAGE_CN
