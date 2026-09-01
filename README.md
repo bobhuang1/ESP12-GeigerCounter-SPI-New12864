@@ -19,18 +19,19 @@ button/buzzer/Geiger-pulse pin assignments.
 
 ## Setup
 
-1. Install dependencies: `U8g2`, `WiFiManager`, `Timezone`, `JsonStreamingParser`
+1. Install dependencies: `U8g2`, `WiFiManager`, `JsonStreamingParser`
    (Arduino Library Manager).
-2. This sketch depends on `GarfieldCommon.h`/`.cpp`
-   ([source](https://github.com/bobhuang1/ESP8266-Garfield-Common)), vendored
-   directly into this repo so it builds standalone - **before flashing,
-   replace the placeholder WiFi credentials and server addresses in
-   `GarfieldCommon.h`/`.cpp` with your own** (see that repo's README for the
-   full list and security notes). If you update the shared library, re-copy
-   both files here.
-3. Flash and power on. With `USE_WIFI_MANAGER` disabled (default), it
-   connects using the SSID/password list in `GarfieldCommon.cpp`; enable it
-   to instead put up a "ESP8266-Setup" WiFi config portal on first boot.
+2. **Before flashing, replace the placeholder values** at the top of the
+   .ino: `WIFI_SSIDS`/`WIFI_PASSWORDS` with your own network(s) - or better,
+   enable `USE_WIFI_MANAGER` instead of hardcoding credentials at all, which
+   puts up a "ESP8266-Setup" WiFi config portal on first boot.
+
+## Dependencies
+
+`StringHelpers`, `AlarmBeeper`, `BacklightController`, `WiFiMultiConnect`,
+`BootSplashBitmap` ([source](https://github.com/bobhuang1/ESP8266-Functions-Common)),
+vendored directly into this repo - re-copy from there if any of them are
+updated.
 
 ## Notes
 

@@ -3,19 +3,27 @@
 #include <stdio.h>
 #include <time.h>                   // struct timeval
 #include <coredecls.h>                  // settimeofday_cb()
-#include <Timezone.h>
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <SPI.h>
 #include <WiFiManager.h>
 #include <Wire.h>
 #include "FS.h"
-#include "GarfieldCommon.h"
+#include "StringHelpers.h"
+#include "AlarmBeeper.h"
+#include "BacklightController.h"
+#include "WiFiMultiConnect.h"
+#include "BootSplashBitmap.h"
 
 #define CURRENT_VERSION 4
 #define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN, enable for 600 Chinese, disable for 601 English
+
+// Fill in your own SSID/password pairs (or better, use USE_WIFI_MANAGER above
+// instead of hardcoding any of this). Never commit real WiFi credentials.
+const char* const WIFI_SSIDS[] = {"YOUR_SSID_1", "YOUR_SSID_2", "YOUR_SSID_3"};
+const char* const WIFI_PASSWORDS[] = {"YOUR_PASSWORD_1", "YOUR_PASSWORD_2", "YOUR_PASSWORD_3"};
 
 // Serial 600 and 602 in Chinese, 601 in English
 #define BUTTONPIN   4
@@ -60,6 +68,8 @@ int displayMaximumLevel = 1023;
 
 U8G2_ST7565_64128N_F_4W_SW_SPI display(U8G2_R0, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_64128N_F_4W_SW_SPI
 
+BacklightController backlight;
+
 volatile unsigned long counts = 0;                       // Tube events
 volatile unsigned long counts1 = 0;                       // Tube events
 volatile unsigned long counts10 = 0;                       // Tube events
@@ -75,7 +85,6 @@ time_t nowTime;
 const String degree = String((char)176);
 const String microSymbol = String((char)181);
 
-int lightLevel[10];
 int draw_state = 1;
 
 int buttonState;             // the current reading from the input pin
@@ -95,7 +104,7 @@ void geigerHandler() { // Captures count of events from Geiger counter board
   counts10 ++;
   if (geigerBeep)
   {
-    shortGeigerBeep(ALARMPIN, true);
+    beep(ALARMPIN, true, 1);
   }
 }
 
@@ -105,14 +114,13 @@ void setup() {
 #ifdef DEBUG
   Serial.println("Begin");
 #endif
-  initializeBackLightArray(lightLevel, BACKLIGHTPIN);
+  backlight.begin(BACKLIGHTPIN);
   adjustBackLightSub();
 
   pinMode(BUTTONPIN, INPUT);
   pinMode(GEIGERPIN, INPUT);
   pinMode(ALARMPIN, OUTPUT);
-  noBeep(ALARMPIN, true);
-  listSPIFFSFiles(); // Lists the files so you can see what is in the SPIFFS
+  beepOff(ALARMPIN, true);
 
   display.begin();
   display.setFontPosTop();
@@ -121,7 +129,7 @@ void setup() {
   display.clearBuffer();
   display.drawXBM(31, 0, 66, 64, garfield);
   display.sendBuffer();
-  shortBeep(ALARMPIN, true);
+  beepShort(ALARMPIN, true);
   delay(1000);
 
   drawProgress(String(CompileDate), String(CURRENT_VERSION));
@@ -129,7 +137,7 @@ void setup() {
 
   drawProgress("Backlight Level", "Test");
 
-  selfTestBacklight(BACKLIGHTPIN);
+  backlight.selfTest();
 
 #ifdef USE_WIFI_MANAGER
 #ifdef LANGUAGE_CN
@@ -145,13 +153,11 @@ void setup() {
 #endif
 #endif
 
-  connectWIFI(
 #ifdef USE_WIFI_MANAGER
-    true
+  connectWiFiWithManager("ESP8266-Setup");
 #else
-    false
+  connectWiFi(WIFI_SSIDS, WIFI_PASSWORDS, 3);
 #endif
-  );
 
   if (WiFi.status() == WL_CONNECTED)
   {
@@ -165,7 +171,7 @@ void setup() {
 #else
     drawProgress("WIFI Connected,", "NTP Time Sync...");
 #endif
-    configTime(TZ_SEC, DST_SEC, NTP_SERVER);
+    configTime(TZ_SEC_FOR(8), DST_SEC_FOR(0), DefaultNtpServer);
 
 #ifdef LANGUAGE_CN
     drawProgress("同步时间成功,", "正在启动中...");
@@ -178,7 +184,7 @@ void setup() {
 }
 
 void adjustBackLightSub() {
-  adjustBacklight(lightLevel, BACKLIGHTPIN, displayBias, displayMultiplier);
+  backlight.update(displayBias, displayMultiplier);
 }
 
 void detectButtonPush() {
@@ -202,7 +208,7 @@ void detectButtonPush() {
         else
         {
           geigerBeep = true;
-          shortGeigerBeep(ALARMPIN, true);
+          beep(ALARMPIN, true, 1);
         }
       }
     }
@@ -267,7 +273,7 @@ void loop() {
     timeInfo = localtime(&nowTime);
     if (timeInfo->tm_hour >= 0 && timeInfo->tm_hour < 7)
     {
-      turnOffBacklight(BACKLIGHTPIN, displayMinimumLevel);
+      backlight.turnOff(displayMinimumLevel);
     }
     else
     {
@@ -540,7 +546,7 @@ void drawLocal() {
     display.drawXBM(113, 0, 12, 12, iconSpeaker);
     if (radioActivity >= 3.42)
     {
-      longBeep(ALARMPIN, true);
+      beepLong(ALARMPIN, true);
     }
   }
   else
@@ -551,20 +557,5 @@ void drawLocal() {
   if (radioActivity > 3)
   {
     display.drawStr(13, 1, "!!");
-  }
-}
-
-void shortGeigerBeep(int alarmPIN, bool bolUseHighAlarm) {
-  if (bolUseHighAlarm)
-  {
-    digitalWrite(alarmPIN, HIGH);
-    delay(1);
-    digitalWrite(alarmPIN, LOW);
-  }
-  else
-  {
-    digitalWrite(alarmPIN, LOW);
-    delay(1);
-    digitalWrite(alarmPIN, HIGH);
   }
 }
