@@ -52,10 +52,14 @@ const String WDAY_NAMES[] = { "日", "一", "二", "三", "四", "五", "六" };
 const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 #endif
 
-#define LOG_PERIOD 20000 //Logging period in milliseconds
-#define LOG_1_PERIOD 60000 //Logging period in milliseconds
-#define LOG_10_PERIOD 60000 //Logging period in milliseconds
+#define LOG_PERIOD 20000    // fast window: 20 s, scaled to a per-minute rate
+#define LOG_1_PERIOD 60000  // 1-minute window
+#define LOG_10_PERIOD 600000 // 10-minute window (was 60000, i.e. a duplicate 1-minute window)
 #define MINUTE_PERIOD 60000
+
+// Conversion factor: counts per minute to uSv/h. 0.0057 is the SBM-20 tube
+// sensitivity; adjust for a different tube.
+#define CPM_TO_USVH 0.0057f
 
 
 // Serial 600, 601
@@ -93,7 +97,17 @@ int lastButtonState = LOW;   // the previous reading from the input pin
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 const unsigned long debounceDelay = 30;    // the debounce time; increase if the output flickers
-bool geigerBeep = true;
+volatile bool geigerBeep = true;
+
+// --- Non-blocking audio state (moved out of the ISR) --------------------------
+// The ISR only flags; loop() drives the pin, because delay()/beep() inside an
+// ISR can starve the ESP8266 and trip the software watchdog.
+volatile bool clickRequested = false;
+bool alarmPulseOn = false;
+unsigned long alarmPulseEndMs = 0;
+unsigned long alarmPulseNextStartMs = 0;
+float radioActivityUsVh = 0; // latest computed dose rate, read by pollAlarmAudio()
+
 
 void ICACHE_RAM_ATTR geigerHandler ();
 
@@ -104,7 +118,44 @@ void geigerHandler() { // Captures count of events from Geiger counter board
   counts10 ++;
   if (geigerBeep)
   {
-    beep(ALARMPIN, true, 1);
+    // Minimal ISR work only: flag the click, let loop() pulse the pin.
+    clickRequested = true;
+  }
+}
+
+// Non-blocking replacement for the old beepLong() call inside draw():
+// 400 ms on / 200 ms off while the dose rate is at or above the alarm level.
+void alarmAudioOff() {
+  alarmPulseOn = false;
+  digitalWrite(ALARMPIN, LOW);
+}
+
+void pollAlarmAudio() {
+  if (clickRequested)
+  {
+    clickRequested = false;
+    digitalWrite(ALARMPIN, HIGH);
+    delay(1); // single 1 ms click, same as beep(ALARMPIN, true, 1) produced
+    digitalWrite(ALARMPIN, LOW);
+  }
+
+  unsigned long now = millis();
+  if (alarmPulseOn)
+  {
+    if ((long)(now - alarmPulseEndMs) >= 0)
+    {
+      alarmAudioOff();
+      alarmPulseNextStartMs = now + 200;
+    }
+  }
+  else if (geigerBeep && radioActivityUsVh >= 3.42f)
+  {
+    if (alarmPulseNextStartMs == 0 || (long)(now - alarmPulseNextStartMs) >= 0)
+    {
+      alarmPulseOn = true;
+      alarmPulseEndMs = now + 400;
+      digitalWrite(ALARMPIN, HIGH);
+    }
   }
 }
 
@@ -284,6 +335,8 @@ void loop() {
   {
     adjustBackLightSub();
   }
+
+  pollAlarmAudio(); // non-blocking click + radiation alarm audio
   detectButtonPush();
 
   display.firstPage();
@@ -350,9 +403,10 @@ void drawLocal() {
   timeInfo = localtime(&nowTime);
   char buff[20];
 
-  float radioActivity = cpm * 0.0057;
-  float radioActivity1 = cpm1 * 0.0057;
-  float radioActivity10 = cpm10 * 0.0057;
+  float radioActivity = cpm * CPM_TO_USVH;
+  float radioActivity1 = cpm1 * CPM_TO_USVH;
+  float radioActivity10 = cpm10 * CPM_TO_USVH;
+  radioActivityUsVh = radioActivity; // for pollAlarmAudio()
 
 #ifdef LANGUAGE_CN
   display.enableUTF8Print();
@@ -544,10 +598,8 @@ void drawLocal() {
   if (geigerBeep)
   {
     display.drawXBM(113, 0, 12, 12, iconSpeaker);
-    if (radioActivity >= 3.42)
-    {
-      beepLong(ALARMPIN, true);
-    }
+    // The alarm tone is driven by pollAlarmAudio() in loop(); drawing must
+    // never block for 2 s (the old beepLong() froze counting and display).
   }
   else
   {
