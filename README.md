@@ -40,3 +40,8 @@ updated.
 - The dose-rate-to-safety-level thresholds in `drawLocal()` are rough,
   illustrative bands, not a calibrated radiological safety reference - don't
   rely on this for actual radiation safety decisions.
+
+
+## License
+
+This project is free software, released under the **GNU General Public License v3.0**. You may redistribute and/or modify it under those terms; see [LICENSE.md](LICENSE.md) for the full text.
