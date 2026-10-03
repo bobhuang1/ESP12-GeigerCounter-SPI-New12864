@@ -2,9 +2,11 @@
 
 An ESP-12 (ESP8266) driven Geiger counter display: reads pulses from a Geiger
 tube module on an interrupt pin, computes counts-per-minute over three
-rolling windows (20s/60s/60s), converts to an estimated dose rate, and shows
-it plus a radiation-safety-level message on a 128x64 SPI LCD, alongside a
-WiFi-synced clock.
+fixed windows (20 s / 1 min / 10 min, shown left to right; the 10-minute
+column reads 0 until the first 10 minutes have passed), converts to an
+estimated dose rate, and shows it plus a dose-rate status on a 128x64 SPI
+LCD, alongside a WiFi-synced clock. Counting starts at power-up and works
+without WiFi; only the clock needs a network.
 
 <img src="Geiger1.jpg" alt="Radioactivity Monitor" width="400"><br/>
 <img src="Geiger2.jpg" alt="Radioactivity Monitor" width="400"><br/>
@@ -19,8 +21,7 @@ button/buzzer/Geiger-pulse pin assignments.
 
 ## Setup
 
-1. Install dependencies: `U8g2`, `WiFiManager`, `JsonStreamingParser`
-   (Arduino Library Manager).
+1. Install dependencies: `U8g2`, `WiFiManager` (Arduino Library Manager).
 2. **Before flashing, replace the placeholder values** at the top of the
    .ino: `WIFI_SSIDS`/`WIFI_PASSWORDS` with your own network(s) - or better,
    enable `USE_WIFI_MANAGER` instead of hardcoding credentials at all, which
@@ -37,9 +38,15 @@ updated.
 
 - `#define LANGUAGE_CN` / comment it out to switch the on-screen text between
   Chinese and English.
-- The dose-rate-to-safety-level thresholds in `drawLocal()` are rough,
-  illustrative bands, not a calibrated radiological safety reference - don't
-  rely on this for actual radiation safety decisions.
+- The status line only says whether the dose *rate* is at normal background
+  (below 0.5 uSv/h), above it, or at the alarm level (3.42 uSv/h and up). It
+  makes no health-effect claims, and the tube conversion (`CPM_TO_USVH`) is
+  uncalibrated - don't rely on this for radiation safety decisions.
+- The button mutes the per-pulse clicks only. The alarm (400 ms on / 200 ms
+  off at or above the alarm level) always sounds.
+- GPIO0 (backlight) and GPIO2 (Geiger input) are boot-strap pins: a Geiger
+  module that holds its output LOW at power-up stops the ESP-12 from booting.
+  Move the input to GPIO4/5/14 if that happens.
 
 
 ## License

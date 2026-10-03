@@ -66,7 +66,7 @@ GPIO 4 D2 - Button
 GPIO 0 D3 - Light Sensor SDA
 GPIO 2 D4 - DHT
 GPIO 13 D7 - Light Sensor SCL
-GPIO 15 D8 - LCD Backlight
+GPIO 15 D8 - LCD Backlight (other sketches only; in the Geiger counter GPIO 15 is the LCD DC line and the backlight is on GPIO 0)
 
 Blue ST9720 LCD
 1  VSS  电源地 ***

@@ -1,5 +1,4 @@
 #include <ESP8266WiFi.h>
-#include <JsonListener.h>
 #include <stdio.h>
 #include <time.h>                   // struct timeval
 #include <coredecls.h>                  // settimeofday_cb()
@@ -7,8 +6,6 @@
 #include <U8g2lib.h>
 #include <SPI.h>
 #include <WiFiManager.h>
-#include <Wire.h>
-#include "FS.h"
 #include "StringHelpers.h"
 #include "AlarmBeeper.h"
 #include "BacklightController.h"
@@ -61,6 +58,15 @@ const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 // sensitivity; adjust for a different tube.
 #define CPM_TO_USVH 0.0057f
 
+// Dose-rate levels (uSv/h) for the on-screen status and the alarm. Typical
+// natural background is roughly 0.05-0.3 uSv/h.
+#define ABOVE_BACKGROUND_USVH 0.5f
+#define ALARM_USVH 3.42f
+
+// How long setup() tries to join WiFi before carrying on offline. The counter
+// works without WiFi; only the clock needs it.
+#define WIFI_CONNECT_TIMEOUT_MS 30000
+
 
 // Serial 600, 601
 bool backlightOffMode = false;
@@ -97,7 +103,7 @@ int lastButtonState = LOW;   // the previous reading from the input pin
 // milliseconds, will quickly become a bigger number than can be stored in an int.
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 const unsigned long debounceDelay = 30;    // the debounce time; increase if the output flickers
-volatile bool geigerBeep = true;
+volatile bool geigerBeep = true; // per-pulse clicks; the button mutes these, never the alarm
 
 // --- Non-blocking audio state (moved out of the ISR) --------------------------
 // The ISR only flags; loop() drives the pin, because delay()/beep() inside an
@@ -109,10 +115,7 @@ unsigned long alarmPulseNextStartMs = 0;
 float radioActivityUsVh = 0; // latest computed dose rate, read by pollAlarmAudio()
 
 
-void ICACHE_RAM_ATTR geigerHandler ();
-
-
-void geigerHandler() { // Captures count of events from Geiger counter board
+void IRAM_ATTR geigerHandler() { // Captures count of events from Geiger counter board
   counts ++;
   counts1 ++;
   counts10 ++;
@@ -148,7 +151,7 @@ void pollAlarmAudio() {
       alarmPulseNextStartMs = now + 200;
     }
   }
-  else if (geigerBeep && radioActivityUsVh >= 3.42f)
+  else if (radioActivityUsVh >= ALARM_USVH) // the alarm sounds even when clicks are muted
   {
     if (alarmPulseNextStartMs == 0 || (long)(now - alarmPulseNextStartMs) >= 0)
     {
@@ -172,6 +175,11 @@ void setup() {
   pinMode(GEIGERPIN, INPUT);
   pinMode(ALARMPIN, OUTPUT);
   beepOff(ALARMPIN, true);
+
+  // Start counting straight away, before the splash screens and WiFi, so the
+  // counter works with no network at all.
+  previousMillis = previous1Millis = previous10Millis = millis();
+  attachInterrupt(digitalPinToInterrupt(GEIGERPIN), geigerHandler, FALLING); // Define interrupt on falling edge
 
   display.begin();
   display.setFontPosTop();
@@ -205,12 +213,12 @@ void setup() {
 #endif
 
 #ifdef USE_WIFI_MANAGER
-  connectWiFiWithManager("ESP8266-Setup");
+  bool wifiOk = connectWiFiWithManager("ESP8266-Setup", WIFI_CONNECT_TIMEOUT_MS / 1000);
 #else
-  connectWiFi(WIFI_SSIDS, WIFI_PASSWORDS, 3);
+  bool wifiOk = connectWiFi(WIFI_SSIDS, WIFI_PASSWORDS, 3, 30, WIFI_CONNECT_TIMEOUT_MS);
 #endif
 
-  if (WiFi.status() == WL_CONNECTED)
+  if (wifiOk)
   {
     // Get time from network time service
 #ifdef DEBUG
@@ -230,8 +238,22 @@ void setup() {
     drawProgress("Time Sync Success,", "Booting...");
 #endif
   }
-  interrupts();                                                            // Enable interrupts
-  attachInterrupt(digitalPinToInterrupt(GEIGERPIN), geigerHandler, FALLING); // Define interrupt on falling edge
+  else
+  {
+#ifdef DEBUG
+    Serial.println("No WIFI, running offline");
+#endif
+  }
+}
+
+// Reads a pulse counter and zeroes it in one step, so a pulse that the ISR adds
+// between the read and the reset isn't lost.
+unsigned long takeCounts(volatile unsigned long& counter) {
+  noInterrupts();
+  unsigned long value = counter;
+  counter = 0;
+  interrupts();
+  return value;
 }
 
 void adjustBackLightSub() {
@@ -284,37 +306,34 @@ void loop() {
   if (currentMillis - previousMillis > LOG_PERIOD)
   {
     previousMillis = currentMillis;
-    cpm = counts * MINUTE_PERIOD / LOG_PERIOD;
+    cpm = takeCounts(counts) * MINUTE_PERIOD / LOG_PERIOD;
 #ifdef DEBUG
     Serial.print("CPM: ");
     Serial.println(cpm);
     Serial.println();
 #endif
-    counts = 0;
   }
 
   if (currentMillis - previous1Millis > LOG_1_PERIOD)
   {
     previous1Millis = currentMillis;
-    cpm1 = counts1 * MINUTE_PERIOD / LOG_1_PERIOD;
+    cpm1 = takeCounts(counts1) * MINUTE_PERIOD / LOG_1_PERIOD;
 #ifdef DEBUG
     Serial.print("CPM 1: ");
     Serial.println(cpm1);
     Serial.println();
 #endif
-    counts1 = 0;
   }
 
   if (currentMillis - previous10Millis > LOG_10_PERIOD)
   {
     previous10Millis = currentMillis;
-    cpm10 = counts10 * MINUTE_PERIOD / LOG_10_PERIOD;
+    cpm10 = takeCounts(counts10) * MINUTE_PERIOD / LOG_10_PERIOD;
 #ifdef DEBUG
     Serial.print("CPM 10: ");
     Serial.println(cpm10);
     Serial.println();
 #endif
-    counts10 = 0;
   }
 
   if (backlightOffMode)
@@ -428,107 +447,46 @@ void drawLocal() {
   }
 
 #ifdef LANGUAGE_CN
-  String WindDirectionAndSpeed = "核辐射检测仪";
+  String titleText = "核辐射检测仪";
 #else
-  String WindDirectionAndSpeed = "Nuclear Radiation";
+  String titleText = "Nuclear Radiation";
 #endif
 
 #ifdef LANGUAGE_CN
-  stringWidth = display.getUTF8Width(string2char(WindDirectionAndSpeed));
+  stringWidth = display.getUTF8Width(string2char(titleText));
 #else
-  stringWidth = display.getStrWidth(string2char(WindDirectionAndSpeed));
+  stringWidth = display.getStrWidth(string2char(titleText));
 #endif
 
   display.setCursor(127 - stringWidth, 54);
-  display.print(WindDirectionAndSpeed);
+  display.print(titleText);
 
-#ifdef LANGUAGE_CN
-#else
-#endif
-  String safetyLevel = "背景辐射，非常安全";
-
-  String converted2 = "< 3.42";
-
-  if (radioActivity < 3.42)
+  // Neutral status text based on the dose *rate*. These are not health-effect
+  // predictions; see the README.
+  String safetyLevel;
+  if (radioActivity < ABOVE_BACKGROUND_USVH)
   {
 #ifdef LANGUAGE_CN
-    safetyLevel = "背景辐射，非常安全";
+    safetyLevel = "正常本底辐射";
 #else
-    safetyLevel = "Background Radiation";
+    safetyLevel = "Normal background";
 #endif
-    converted2 = "< 3.42";
   }
-  else if (radioActivity < 5.7)
+  else if (radioActivity < ALARM_USVH)
   {
 #ifdef LANGUAGE_CN
-    safetyLevel = "有辐射，基本安全";
+    safetyLevel = "高于正常本底";
 #else
-    safetyLevel = "Light Radiation Safe";
+    safetyLevel = "Above background";
 #endif
-    converted2 = "< 5.7";
   }
-  else if (radioActivity < 10)
+  else
   {
 #ifdef LANGUAGE_CN
-    safetyLevel = "中辐射，长期能患癌";
+    safetyLevel = "辐射偏高 - 报警";
 #else
-    safetyLevel = "Low Radiation Cancer Risk";
+    safetyLevel = "HIGH - alarm level";
 #endif
-    converted2 = "< 10";
-  }
-  else if (radioActivity < 1000)
-  {
-#ifdef LANGUAGE_CN
-    safetyLevel = "强辐射，长期能患癌";
-#else
-    safetyLevel = "Med Radiation Cancer Risk High";
-#endif
-    converted2 = "< 1000";
-  }
-  else if (radioActivity < 3500)
-  {
-#ifdef LANGUAGE_CN
-    safetyLevel = "很强辐射，长期患癌";
-#else
-    safetyLevel = "High Radiation Cancer Risk High";
-#endif
-    converted2 = "< 3500";
-  }
-  else if (radioActivity < 10000)
-  {
-#ifdef LANGUAGE_CN
-    safetyLevel = "超强辐射，明显症状";
-#else
-    safetyLevel = "V High Radiation Symptoms";
-#endif
-    converted2 = "< 10000";
-  }
-  else if (radioActivity < 41000)
-  {
-#ifdef LANGUAGE_CN
-    safetyLevel = "极强辐射，5%死亡";
-#else
-    safetyLevel = "U High Radiation 5% Death";
-#endif
-    converted2 = "< 41000";
-  }
-  else if (radioActivity < 83000)
-  {
-#ifdef LANGUAGE_CN
-    safetyLevel = "极强辐射，50%死亡";
-#else
-    safetyLevel = "Lethal Radiation 50% Death";
-#endif
-    converted2 = "< 83000";
-  }
-  else if (radioActivity < 333000)
-  {
-#ifdef LANGUAGE_CN
-    safetyLevel = "致死辐射，100%死亡";
-#else
-    safetyLevel = "Lethal Radiation 100% Death";
-#endif
-    converted2 = "< 333000";
   }
 
 #ifdef LANGUAGE_CN
@@ -582,12 +540,6 @@ void drawLocal() {
   stringWidth = display.getStrWidth(string2char(converted1));
   display.drawStr(127 - stringWidth, thirdLineY, string2char((converted1)));
 
-  /*
-    converted2.trim();
-    stringWidth = display.getStrWidth(string2char(converted2));
-    display.drawStr(127 - stringWidth, 25, string2char((converted2)));
-  */
-
   display.setFont(u8g2_font_helvR08_tf);
   sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
   if (WiFi.status() == WL_CONNECTED && timeInfo->tm_year != 70)
@@ -606,7 +558,7 @@ void drawLocal() {
     display.drawXBM(113, 0, 12, 12, iconMute);
   }
   display.drawXBM(0, 0, 12, 12, iconNuclear);
-  if (radioActivity > 3)
+  if (radioActivity >= ALARM_USVH)
   {
     display.drawStr(13, 1, "!!");
   }
